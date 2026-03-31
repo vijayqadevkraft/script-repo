@@ -9,20 +9,23 @@ cat <<EOF > index.html
 </head>
 <body>
     <h1>Hello from Simple Index Script!</h1>
-    <p>This page was deployed using a script.</p>
+    <p>This page was deployed using a script (PHP built-in server).</p>
 </body>
 </html>
 EOF
 
-# Stop and remove existing container if it exists
-docker stop simple-web-container 2>/dev/null || true
-docker rm simple-web-container 2>/dev/null || true
+# Port to use
+PORT=8080
 
-# Run Nginx container to serve the index.html
-docker run -d \
-  --name simple-web-container \
-  -p 8080:80 \
-  -v "$(pwd)/index.html:/usr/share/nginx/html/index.html:ro" \
-  nginx
+# Check if something is already running on the port and stop it
+PID=$(lsof -t -i :$PORT)
+if [ ! -z "$PID" ]; then
+    echo "Stopping existing process on port $PORT (PID: $PID)..."
+    kill $PID
+    sleep 1
+fi
 
-echo "Simple index.html is being served at http://localhost:8080"
+# Run PHP built-in server to serve the index.html
+php -S localhost:$PORT > php_server.log 2>&1 &
+
+echo "Simple index.html is being served at http://localhost:$PORT using PHP built-in server"
