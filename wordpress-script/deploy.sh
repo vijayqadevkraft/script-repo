@@ -1,38 +1,35 @@
 #!/bin/bash
 
-# Create docker-compose.yml for WordPress and MySQL
-cat <<EOF > docker-compose.yml
-services:
-  db:
-    image: mysql:5.7
-    volumes:
-      - db_data:/var/lib/mysql
-    restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: wordpress_root_password
-      MYSQL_DATABASE: wordpress
-      MYSQL_USER: wordpress_user
-      MYSQL_PASSWORD: wordpress_password
+set -euo pipefail
 
-  wordpress:
-    depends_on:
-      - db
-    image: wordpress:latest
-    ports:
-      - "8081:80"
-    restart: always
-    environment:
-      WORDPRESS_DB_HOST: db:3306
-      WORDPRESS_DB_USER: wordpress_user
-      WORDPRESS_DB_PASSWORD: wordpress_password
-      WORDPRESS_DB_NAME: wordpress
+echo "🚀 Starting WordPress Deployment (Apache)"
 
-volumes:
-  db_data:
-EOF
+WEB_ROOT="/var/www/html"
 
-# Start the services
-docker compose up -d
+# Install packages
+sudo apt update
+sudo apt install -y apache2 mysql-server php libapache2-mod-php php-mysql unzip curl
 
-echo "WordPress is being deployed at http://localhost:8081"
-echo "It may take a minute for the database to initialize."
+# Start services
+sudo systemctl enable apache2
+sudo systemctl enable mysql
+
+sudo systemctl start apache2
+sudo systemctl start mysql
+
+# Download WordPress
+cd /tmp
+curl -O https://wordpress.org/latest.tar.gz
+tar -xzf latest.tar.gz
+
+# Deploy
+sudo rm -rf $WEB_ROOT/*
+sudo cp -r wordpress/* $WEB_ROOT/
+
+# Set permissions
+sudo chown -R www-data:www-data $WEB_ROOT
+
+# Restart Apache
+sudo systemctl restart apache2
+
+echo "✅ WordPress deployed using Apache"
