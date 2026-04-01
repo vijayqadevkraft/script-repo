@@ -1,28 +1,62 @@
 #!/bin/bash
 
-# Create a simple index.html file
-cat <<EOF > index.html
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Simple Index Page</title>
-</head>
-<body>
-    <h1>Hello from Simple Index Script!</h1>
-    <p>This page was deployed using a script.</p>
-</body>
-</html>
-EOF
+set -euo pipefail
 
-# Stop and remove existing container if it exists
-docker stop simple-web-container 2>/dev/null || true
-docker rm simple-web-container 2>/dev/null || true
+echo "--------------------------------------"
+echo "🚀 Starting Frontend Deployment"
+echo "--------------------------------------"
 
-# Run Nginx container to serve the index.html
-docker run -d \
-  --name simple-web-container \
-  -p 8080:80 \
-  -v "$(pwd)/index.html:/usr/share/nginx/html/index.html:ro" \
-  nginx
+# -----------------------------
+# Variables
+# -----------------------------
+APP_DIR="${WORKSPACE}/app/frontend/simple-index-html"
+DEST_DIR="/var/www/html"
+SERVICE="nginx"
+BACKUP_DIR="/var/www/html_backup_$(date +%F-%T)"
 
-echo "Simple index.html is being served at http://localhost:8080"
+# -----------------------------
+# Install Nginx (if not installed)
+# -----------------------------
+if ! command -v nginx &> /dev/null
+then
+    echo "📦 Installing Nginx..."
+    sudo apt update -y
+    sudo apt install -y nginx
+fi
+
+# -----------------------------
+# Backup existing deployment
+# -----------------------------
+if [ -d "$DEST_DIR" ] && [ "$(ls -A $DEST_DIR)" ]; then
+    echo "📁 Taking backup of existing files..."
+    sudo cp -r $DEST_DIR $BACKUP_DIR
+fi
+
+# -----------------------------
+# Deploy new files
+# -----------------------------
+echo "📁 Deploying new frontend..."
+
+sudo rm -rf ${DEST_DIR:?}/*
+sudo cp -r $APP_DIR/* $DEST_DIR/
+
+# -----------------------------
+# Set permissions
+# -----------------------------
+sudo chown -R www-data:www-data $DEST_DIR
+
+# -----------------------------
+# Restart Nginx
+# -----------------------------
+echo "🔄 Restarting Nginx..."
+sudo systemctl restart $SERVICE
+
+# -----------------------------
+# Health Check
+# -----------------------------
+echo "🌐 Checking service..."
+sudo systemctl status $SERVICE --no-pager
+
+echo "--------------------------------------"
+echo "✅ Deployment Successful"
+echo "--------------------------------------"
