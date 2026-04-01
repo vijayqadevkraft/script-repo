@@ -3,13 +3,16 @@
 set -euo pipefail
 
 echo "--------------------------------------"
-echo "🚀 Starting Frontend Deployment"
+echo "🚀 Starting Full Stack Deployment"
 echo "--------------------------------------"
 
 # -----------------------------
 # Variables
 # -----------------------------
-APP_DIR="${WORKSPACE}/app/frontend/simple-index-html"
+WORKSPACE_DIR="${WORKSPACE}"
+FRONTEND_DIR="$WORKSPACE_DIR/app/frontend/simple-index-html"
+BACKEND_DIR="$WORKSPACE_DIR/app/backend"
+
 DEST_DIR="/var/www/html"
 SERVICE="nginx"
 BACKUP_DIR="/var/www/html_backup_$(date +%F-%T)"
@@ -25,38 +28,79 @@ then
 fi
 
 # -----------------------------
-# Backup existing deployment
+# Install Node + PM2 (if not installed)
 # -----------------------------
-if [ -d "$DEST_DIR" ] && [ "$(ls -A $DEST_DIR)" ]; then
-    echo "📁 Taking backup of existing files..."
-    sudo cp -r $DEST_DIR $BACKUP_DIR
+if ! command -v node &> /dev/null
+then
+    echo "📦 Installing Node.js..."
+    sudo apt install -y nodejs npm
+fi
+
+if ! command -v pm2 &> /dev/null
+then
+    echo "📦 Installing PM2..."
+    sudo npm install -g pm2
 fi
 
 # -----------------------------
-# Deploy new files
+# FRONTEND DEPLOYMENT
 # -----------------------------
-echo "📁 Deploying new frontend..."
+echo "--------------------------------------"
+echo "🌐 Deploying Frontend"
+echo "--------------------------------------"
 
+if [ ! -d "$FRONTEND_DIR" ]; then
+    echo "❌ Frontend directory not found!"
+    exit 1
+fi
+
+# Backup
+if [ -d "$DEST_DIR" ] && [ "$(ls -A $DEST_DIR)" ]; then
+    echo "📁 Taking backup..."
+    sudo cp -r $DEST_DIR $BACKUP_DIR
+fi
+
+# Deploy
 sudo rm -rf ${DEST_DIR:?}/*
-sudo cp -r $APP_DIR/* $DEST_DIR/
-
-# -----------------------------
-# Set permissions
-# -----------------------------
+sudo cp -r $FRONTEND_DIR/* $DEST_DIR/
 sudo chown -R www-data:www-data $DEST_DIR
 
-# -----------------------------
 # Restart Nginx
-# -----------------------------
 echo "🔄 Restarting Nginx..."
 sudo systemctl restart $SERVICE
 
 # -----------------------------
-# Health Check
+# BACKEND DEPLOYMENT
 # -----------------------------
-echo "🌐 Checking service..."
+echo "--------------------------------------"
+echo "⚙️ Deploying Backend"
+echo "--------------------------------------"
+
+if [ ! -d "$BACKEND_DIR" ]; then
+    echo "❌ Backend directory not found!"
+    exit 1
+fi
+
+cd $BACKEND_DIR
+
+# Install dependencies
+npm install || true
+
+# Restart backend using PM2
+pm2 delete backend-app || true
+pm2 start server.js --name backend-app
+pm2 save
+
+# -----------------------------
+# HEALTH CHECK
+# -----------------------------
+echo "--------------------------------------"
+echo "🌐 Checking Services"
+echo "--------------------------------------"
+
 sudo systemctl status $SERVICE --no-pager
+pm2 status
 
 echo "--------------------------------------"
-echo "✅ Deployment Successful"
+echo "✅ Full Deployment Successful"
 echo "--------------------------------------"
