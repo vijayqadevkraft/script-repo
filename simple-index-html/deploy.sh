@@ -2,105 +2,91 @@
 
 set -euo pipefail
 
-echo "--------------------------------------"
-echo "🚀 Starting Full Stack Deployment"
-echo "--------------------------------------"
+echo "🚀 Starting Deployment on EC2..."
 
-# -----------------------------
-# Variables
-# -----------------------------
-WORKSPACE_DIR="${WORKSPACE}"
+WORKSPACE_DIR="${WORKSPACE:-$(pwd)}"
 FRONTEND_DIR="$WORKSPACE_DIR/app/frontend"
 BACKEND_DIR="$WORKSPACE_DIR/app/backend"
 
 DEST_DIR="/var/www/html"
 SERVICE="nginx"
-BACKUP_DIR="/var/www/html_backup_$(date +%F-%T)"
 
 # -----------------------------
-# Install Nginx (if not installed)
+# Install dependencies
 # -----------------------------
-if ! command -v nginx &> /dev/null
-then
-    echo "📦 Installing Nginx..."
-    sudo apt update -y
+sudo apt update -y
+
+if ! command -v nginx &> /dev/null; then
     sudo apt install -y nginx
 fi
 
-# -----------------------------
-# Install Node + PM2 (if not installed)
-# -----------------------------
-if ! command -v node &> /dev/null
-then
-    echo "📦 Installing Node.js..."
+if ! command -v node &> /dev/null; then
     sudo apt install -y nodejs npm
 fi
 
-if ! command -v pm2 &> /dev/null
-then
-    echo "📦 Installing PM2..."
+if ! command -v pm2 &> /dev/null; then
     sudo npm install -g pm2
 fi
 
 # -----------------------------
-# FRONTEND DEPLOYMENT
+# Configure Nginx
 # -----------------------------
-echo "--------------------------------------"
-echo "🌐 Deploying Frontend"
-echo "--------------------------------------"
+echo "⚙️ Configuring Nginx..."
 
-if [ ! -d "$FRONTEND_DIR" ]; then
-    echo "❌ Frontend directory not found!"
-    exit 1
-fi
+sudo tee /etc/nginx/sites-available/default > /dev/null <<EOF
+server {
+    listen 80;
+    server_name _;
 
-# Backup
-if [ -d "$DEST_DIR" ] && [ "$(ls -A $DEST_DIR)" ]; then
-    echo "📁 Taking backup..."
-    sudo cp -r $DEST_DIR $BACKUP_DIR
-fi
+    root $DEST_DIR;
+    index index.html;
 
-# Deploy
-sudo rm -rf ${DEST_DIR:?}/*
-sudo cp -r $FRONTEND_DIR/* $DEST_DIR/
-sudo chown -R www-data:www-data $DEST_DIR
+    location / {
+        try_files \$uri \$uri/ =404;
+    }
 
-# Restart Nginx
-echo "🔄 Restarting Nginx..."
-sudo systemctl restart $SERVICE
+    location /api {
+        proxy_pass http://localhost:3000;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+    }
+}
+EOF
+
+sudo nginx -t
+sudo systemctl restart nginx
 
 # -----------------------------
-# BACKEND DEPLOYMENT
+# Deploy frontend
 # -----------------------------
-echo "--------------------------------------"
-echo "⚙️ Deploying Backend"
-echo "--------------------------------------"
+sudo rm -rf "$DEST_DIR"/*
+sudo cp -r "$FRONTEND_DIR"/* "$DEST_DIR"/
 
-if [ ! -d "$BACKEND_DIR" ]; then
-    echo "❌ Backend directory not found!"
-    exit 1
-fi
+# -----------------------------
+# Deploy backend
+# -----------------------------
+cd "$BACKEND_DIR"
 
-cd $BACKEND_DIR
+npm install
 
-# Install dependencies
-npm install || true
-
-# Restart backend using PM2
-pm2 delete backend-app || true
+pm2 delete backend-app 2>/dev/null || true
 pm2 start server.js --name backend-app
 pm2 save
 
 # -----------------------------
-# HEALTH CHECK
+# Enable PM2 auto start (EC2 fix)
 # -----------------------------
-echo "--------------------------------------"
-echo "🌐 Checking Services"
-echo "--------------------------------------"
+pm2 startup systemd -u $(whoami) --hp /home/$(whoami)
 
-sudo systemctl status $SERVICE --no-pager
-pm2 status
+# -----------------------------
+# Health check
+# -----------------------------
+echo "Testing..."
 
-echo "--------------------------------------"
-echo "✅ Full Deployment Successful"
-echo "--------------------------------------"
+curl http://localhost:3000/api
+curl http://localhost/api
+
+echo "✅ Deployment Complete on EC2"
