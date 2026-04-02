@@ -10,7 +10,7 @@ echo "--------------------------------------"
 # Variables
 # -----------------------------
 WORKSPACE_DIR="${WORKSPACE}"
-FRONTEND_DIR="$WORKSPACE_DIR/app/frontend/simple-index-html"
+FRONTEND_DIR="$WORKSPACE_DIR/app/frontend"
 BACKEND_DIR="$WORKSPACE_DIR/app/backend"
 
 DEST_DIR="/var/www/html"
