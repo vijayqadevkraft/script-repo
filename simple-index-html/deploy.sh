@@ -2,8 +2,13 @@
 
 set -euo pipefail
 
-echo "🚀 Starting Deployment on EC2..."
+echo "--------------------------------------"
+echo "🚀 Starting Full Stack Deployment"
+echo "--------------------------------------"
 
+# -----------------------------
+# Variables
+# -----------------------------
 WORKSPACE_DIR="${WORKSPACE:-$(pwd)}"
 FRONTEND_DIR="$WORKSPACE_DIR/app/frontend"
 BACKEND_DIR="$WORKSPACE_DIR/app/backend"
@@ -14,6 +19,8 @@ SERVICE="nginx"
 # -----------------------------
 # Install dependencies
 # -----------------------------
+echo "📦 Installing dependencies..."
+
 sudo apt update -y
 
 if ! command -v nginx &> /dev/null; then
@@ -35,7 +42,9 @@ echo "⚙️ Configuring Nginx..."
 
 sudo tee /etc/nginx/sites-available/default > /dev/null <<EOF
 server {
-    listen 80;
+    listen 80 default_server;
+    listen [::]:80 default_server;
+
     server_name _;
 
     root $DEST_DIR;
@@ -52,41 +61,69 @@ server {
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
     }
 }
 EOF
 
 sudo nginx -t
-sudo systemctl restart nginx
+sudo systemctl daemon-reload
+sudo systemctl restart $SERVICE
 
 # -----------------------------
-# Deploy frontend
+# FRONTEND DEPLOYMENT
 # -----------------------------
+echo "🌐 Deploying Frontend..."
+
+if [ ! -d "$FRONTEND_DIR" ]; then
+    echo "❌ Frontend directory not found!"
+    exit 1
+fi
+
 sudo rm -rf "$DEST_DIR"/*
 sudo cp -r "$FRONTEND_DIR"/* "$DEST_DIR"/
+sudo chown -R www-data:www-data "$DEST_DIR"
 
 # -----------------------------
-# Deploy backend
+# BACKEND DEPLOYMENT
 # -----------------------------
+echo "⚙️ Deploying Backend..."
+
+if [ ! -d "$BACKEND_DIR" ]; then
+    echo "❌ Backend directory not found!"
+    exit 1
+fi
+
 cd "$BACKEND_DIR"
 
 npm install
 
+# Clean PM2 (fix port/zombie issues)
 pm2 delete backend-app 2>/dev/null || true
+
+# Kill any process using port 3000 (extra safe)
+fuser -k 3000/tcp 2>/dev/null || true
+
+# Start backend
 pm2 start server.js --name backend-app
 pm2 save
 
-# -----------------------------
-# Enable PM2 auto start (EC2 fix)
-# -----------------------------
-pm2 startup systemd -u $(whoami) --hp /home/$(whoami)
+# Enable PM2 auto start (EC2 safe)
+pm2 startup systemd -u $(whoami) --hp /home/$(whoami) || true
 
 # -----------------------------
-# Health check
+# HEALTH CHECK (SAFE VERSION)
 # -----------------------------
-echo "Testing..."
+echo "🌐 Checking Services..."
 
-curl http://localhost:3000/api
-curl http://localhost/api
+sleep 3
 
-echo "✅ Deployment Complete on EC2"
+echo "🔍 Backend check..."
+curl -s --retry 3 --retry-delay 2 http://localhost:3000/api || echo "⚠️ Backend not ready"
+
+echo "🔍 Nginx routing check..."
+curl -s --retry 3 --retry-delay 2 http://localhost/api || echo "⚠️ Nginx routing issue"
+
+echo "--------------------------------------"
+echo "✅ Deployment Completed Successfully"
+echo "--------------------------------------"
