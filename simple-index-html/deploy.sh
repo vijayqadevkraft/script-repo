@@ -20,7 +20,6 @@ SERVICE="nginx"
 # Install dependencies
 # -----------------------------
 echo "📦 Installing dependencies..."
-
 sudo apt update -y
 
 if ! command -v nginx &> /dev/null; then
@@ -66,9 +65,18 @@ server {
 }
 EOF
 
+# 🔥 IMPORTANT FIX: enable config
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo ln -s /etc/nginx/sites-available/default /etc/nginx/sites-enabled/
+
+# 🔥 FULL restart (not reload)
 sudo nginx -t
-sudo systemctl daemon-reload
-sudo systemctl restart $SERVICE
+sudo systemctl stop nginx
+sudo systemctl start nginx
+
+# Debug (optional but useful)
+echo "🔍 Active Nginx config:"
+sudo nginx -T | grep api || true
 
 # -----------------------------
 # FRONTEND DEPLOYMENT
@@ -98,31 +106,30 @@ cd "$BACKEND_DIR"
 
 npm install
 
-# Clean PM2 (fix port/zombie issues)
+# Clean PM2 + port issues
 pm2 delete backend-app 2>/dev/null || true
-
-# Kill any process using port 3000 (extra safe)
+pm2 kill || true
 fuser -k 3000/tcp 2>/dev/null || true
 
 # Start backend
 pm2 start server.js --name backend-app
 pm2 save
 
-# Enable PM2 auto start (EC2 safe)
+# Enable auto start (EC2 safe)
 pm2 startup systemd -u $(whoami) --hp /home/$(whoami) || true
 
 # -----------------------------
-# HEALTH CHECK (SAFE VERSION)
+# HEALTH CHECK (SAFE)
 # -----------------------------
 echo "🌐 Checking Services..."
 
 sleep 3
 
 echo "🔍 Backend check..."
-curl -s --retry 3 --retry-delay 2 http://localhost:3000/api || echo "⚠️ Backend not ready"
+curl -s http://localhost:3000/api || echo "⚠️ Backend not ready"
 
 echo "🔍 Nginx routing check..."
-curl -s --retry 3 --retry-delay 2 http://localhost/api || echo "⚠️ Nginx routing issue"
+curl -s http://localhost/api || echo "⚠️ Nginx routing issue"
 
 echo "--------------------------------------"
 echo "✅ Deployment Completed Successfully"
